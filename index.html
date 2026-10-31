@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OrderResolve AI – Order-to-POS failure triage (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#e9eef1; --panel:#ffffff; --ink:#13202b; --muted:#5a6b78; --line:#cfd9df;
+  --accent:#0b6e8a; --accent-ink:#ffffff; --warn:#b4531a; --bad:#b3261e; --ok:#1f7a4d;
+  --tint:#f3f6f8;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#0f1a22;--panel:#16252f;--ink:#e6eef3;--muted:#98aab6;--line:#2a3d4a;--accent:#4cc3e3;--accent-ink:#06222c;--warn:#f0a066;--bad:#ff8a80;--ok:#6fd6a1;--tint:#1c2d38}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5}
+header{padding:18px 24px;border-bottom:1px solid var(--line);background:var(--panel)}
+h1{font-size:20px;margin:0;font-weight:600}
+header p{margin:2px 0 0;color:var(--muted);font-size:13px}
+.banner{background:var(--tint);border-bottom:1px solid var(--line);padding:8px 24px;font-size:12.5px;color:var(--muted)}
+main{display:grid;grid-template-columns:320px 1fr;gap:20px;padding:20px 24px;max-width:1200px;margin:0 auto}
+@media(max-width:860px){main{grid-template-columns:1fr;padding:14px}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px}
+.panel h2{font-size:13px;margin:0;padding:12px 14px;border-bottom:1px solid var(--line);font-weight:600}
+.queue button{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:12px 14px;cursor:pointer;color:var(--ink);font:inherit}
+.queue button:hover{background:var(--tint)}
+.queue button[aria-current="true"]{background:var(--tint);box-shadow:inset 3px 0 0 var(--accent)}
+.queue button:focus-visible,.btn:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.q-top{display:flex;justify-content:space-between;font-weight:600;font-size:14px}
+.q-sub{font-size:12.5px;color:var(--muted)}
+.pill{display:inline-block;font-size:11.5px;padding:1px 8px;border-radius:10px;border:1px solid var(--line);margin-top:4px}
+.pill.urgent{color:var(--bad);border-color:var(--bad)}
+.custom{padding:14px;border-top:1px solid var(--line)}
+.custom label{display:block;font-size:12.5px;font-weight:600;margin-bottom:6px}
+textarea{width:100%;min-height:84px;border:1px solid var(--line);border-radius:4px;background:var(--panel);color:var(--ink);font-family:var(--mono);font-size:12px;padding:8px}
+.btn{background:var(--accent);color:var(--accent-ink);border:0;border-radius:4px;padding:8px 14px;font:inherit;font-weight:500;cursor:pointer;margin-top:8px}
+.btn.alt{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.stack{display:flex;flex-direction:column;gap:16px}
+.sec{padding:14px 16px}
+.row{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:13.5px}
+.row b{font-weight:600}
+.muted{color:var(--muted)}
+.log{font-family:var(--mono);font-size:12px;background:var(--tint);border:1px solid var(--line);border-radius:4px;padding:10px;white-space:pre-wrap;margin:8px 0 0}
+.log mark{background:rgba(180,83,26,.22);color:inherit;padding:0 2px}
+.cause{font-size:18px;font-weight:600;margin:0 0 4px}
+.meter{height:6px;background:var(--tint);border-radius:3px;overflow:hidden;width:180px;display:inline-block;vertical-align:middle;margin-left:8px;border:1px solid var(--line)}
+.meter i{display:block;height:100%;background:var(--accent)}
+ul.plain{margin:8px 0 0;padding-left:18px}
+.check{display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px dashed var(--line)}
+.check:last-child{border-bottom:0}
+.check input{margin-top:4px;width:16px;height:16px}
+.progress{font-size:12.5px;color:var(--muted);margin-top:8px}
+.summary{font-family:var(--mono);font-size:12.5px;white-space:pre-wrap;background:var(--tint);border:1px solid var(--line);border-radius:4px;padding:12px;margin:8px 0 0}
+.note{font-size:12.5px;color:var(--muted);margin-top:8px}
+h3{font-size:14px;margin:0 0 4px}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+th{font-weight:600}
+</style>
+</head>
+<body>
+<header>
+  <h1>OrderResolve AI</h1>
+  <p>Triage support for online orders that fail to reach the POS</p>
+</header>
+<div class="banner">Prototype on synthetic sample data. It does not connect to Lunchbox or any POS, and it never changes an order. Every output is a draft for a person to review.</div>
+
+<main>
+  <aside class="panel">
+    <h2>Failed orders (sample)</h2>
+    <div class="queue" id="queue"></div>
+    <div class="custom">
+      <label for="customLog">Try your own error log</label>
+      <textarea id="customLog" placeholder="Paste an error message or log lines here"></textarea>
+      <button class="btn alt" id="analyzeCustom" type="button">Analyze this log</button>
+    </div>
+  </aside>
+
+  <section class="stack" id="detail" aria-live="polite"></section>
+</main>
+
+<script>
+/* ---------- Synthetic sample orders (illustrative, not real customer data) ---------- */
+const ORDERS = [
+  {id:"LB-10482",store:"Downtown",channel:"Web pickup",minutes:12,total:"34.60",items:"2 × Chicken Bowl, 1 × Iced Tea",
+   log:"09:14:02 POST /pos/orders – waiting for POS acknowledgement\n09:14:32 ERROR ETIMEDOUT: no response from POS after 30000 ms\n09:14:33 Order status set to FAILED_TO_INJECT"},
+  {id:"LB-10483",store:"Northside",channel:"App delivery",minutes:35,total:"27.45",items:"1 × Falafel Wrap, 1 × Side Salad (extra avocado)",
+   log:"10:02:11 ERROR Unknown item: PLU 40117 not found in POS menu\n10:02:11 WARN Modifier 'Extra Avocado' mapping missing\n10:02:12 Order rejected by POS"},
+  {id:"LB-10484",store:"Airport",channel:"Web pickup",minutes:20,total:"27.45",items:"3 × Paneer Wrap",
+   log:"10:41:50 ERROR Total mismatch: platform total 27.45, POS total 26.80\n10:41:50 Difference 0.65 appears to be tax"},
+  {id:"LB-10485",store:"Downtown",channel:"Kiosk",minutes:8,total:"18.90",items:"1 × Burrito Bowl, 1 × Soda",
+   log:"11:05:02 POS send failed (attempt 10 of 10)\n11:05:03 Order status ADMIN_HOLD, awaiting manual release"},
+  {id:"LB-10486",store:"Lakeside",channel:"App pickup",minutes:25,total:"42.10",items:"4 × Chicken Wrap",
+   log:"11:30:44 ERROR Integration agent offline: last heartbeat 41 min ago\n11:30:45 Connection refused by store terminal"},
+  {id:"LB-10487",store:"Northside",channel:"Web delivery",minutes:50,total:"23.75",items:"1 × Veg Thali",
+   log:"12:12:09 Payment authorised and captured on platform\n12:12:10 ERROR Tender rejected: tender type 'ONLINE' not configured in POS"},
+  {id:"LB-10488",store:"Lakeside",channel:"Web pickup",minutes:30,total:"21.40",items:"2 × Veg Burrito",
+   log:"13:02:10 POS send attempt 3 of 10 failed: connection reset\n13:02:11 Retrying automatically in 60 seconds"},
+  {id:"LB-10489",store:"Airport",channel:"App pickup",minutes:18,total:"31.20",items:"1 × Chicken Bowl, 1 × Garlic Naan",
+   log:"13:20:44 ERROR POS rejected order: GUID mismatch on item 'Chicken Bowl'\n13:20:44 WARN Menu configuration may be out of sync with POS"}
+];
+
+/* ---------- Rule-based triage engine ---------- */
+const RULES = [
+  {key:"timeout",cause:"The POS did not acknowledge the order in time",test:/timeout|timed out|etimedout|no response|504/i,
+   why:"The order was sent but the POS never confirmed it, so the platform marked it failed. The order may or may not exist in the POS.",
+   missing:["Whether the order already exists in the POS (a retry could create a duplicate)","Current POS network and printer status","Whether the kitchen has a ticket for this order"],
+   checks:["Search the POS for this order number or customer name before resending","Confirm the POS and store internet connection are up","If the order is not in the POS, re-send it or enter it manually","Tell the kitchen and update the customer pickup time if needed","Log the outcome so repeat timeouts at this store can be spotted"],
+   owner:"Store manager, then integration support if it repeats"},
+  {key:"offline",cause:"The store’s POS or integration agent appears to be offline",test:/offline|heartbeat|connection refused|unreachable/i,
+   why:"No recent heartbeat means orders cannot reach the terminal. Other orders from this store are probably affected too.",
+   missing:["Whether other orders from this store are also failing","Whether the terminal is powered on and online","The time of the last successful order"],
+   checks:["Check whether the terminal and integration agent are running","Restart the agent or reconnect the terminal if safe to do so","List other orders from this store since the last heartbeat","Enter urgent orders manually or contact customers about delays","Escalate to integration support if the agent will not reconnect"],
+   owner:"Store manager and integration support"},
+  {key:"mapping",cause:"A menu item or modifier does not match the POS menu",test:/unknown item|not found in pos|plu|mapping|sku|modifier/i,
+   why:"The online menu sent an item code the POS does not recognise. The same item will keep failing until the mapping is fixed.",
+   missing:["Which exact item or modifier code failed","When the menu was last synced or edited","Whether the item is active in the POS for this store"],
+   checks:["Identify the failing item or modifier code from the log","Compare it with the item in the POS menu","Fix or request the mapping change, then re-sync the menu","Re-send or manually enter this order","Test one order containing the item before reopening it"],
+   owner:"Menu or catalog owner"},
+  {key:"total",cause:"The platform total and POS total do not match",test:/total mismatch|amount mismatch|subtotal|tax/i,
+   why:"The two systems calculated different totals, often from tax or price rules. The POS may refuse the order to avoid a payment discrepancy.",
+   missing:["Tax settings and price rules in both systems","Whether a discount or fee was applied on one side only","The exact line items and amounts on each side"],
+   checks:["Compare line items, tax and fees between platform and POS","Identify which side holds the rule that differs","Do not change the customer’s charged amount without approval","Enter the order manually at the platform total if approved","Record the root cause for the finance team"],
+   owner:"Finance or menu configuration owner"},
+  {key:"payment",cause:"Payment is recorded on the platform but the POS cannot accept the tender",test:/tender|payment|auth|declin|captur/i,
+   why:"The customer has paid but the POS has no matching payment type, so the order cannot be completed without a manual step.",
+   missing:["Which tender types are configured in the POS","The payment reference from the platform","Whether the payment settles to the right account"],
+   checks:["Confirm the payment reference on the platform","Check the POS tender configuration","Add the missing tender type or record it as an approved manual tender","Enter the order and note the payment reference","Flag for reconciliation at end of day"],
+   owner:"Finance and POS administrator"},
+  {key:"guid",cause:"The online menu and the POS menu are out of sync (GUID or configuration mismatch)",test:/guid|menu config/i,
+   why:"Per Lunchbox’s public documentation, mismatched item identifiers or menu setup usually need someone on the POS side to correct the configuration before the order can be sent again.",
+   missing:["Which item or modifier identifier was rejected","When the menu was last synced or changed","Whether other orders with the same item are failing"],
+   checks:["Identify the rejected item from the POS error log","Compare it with the item in the POS menu","Ask the POS administrator or provider to correct the configuration","Release the order, or enter it manually in the POS and mark it complete in Lunchbox","Test one order with the same item before assuming it is fixed"],
+   owner:"POS administrator or provider"},
+  {key:"transient",cause:"A temporary POS connection problem; the system is retrying",test:/retrying|will retry|attempt [1-9] of 10/i,
+   why:"Per Lunchbox’s public documentation, failed POS sends are retried automatically (up to 10 attempts), and temporary connection loss often clears without manual work.",
+   missing:["Whether the POS connection has recovered","How many attempts have failed so far","The pickup time"],
+   checks:["Do not resend or re-enter the order yet, because that could create a duplicate","Watch the order’s next attempt in the POS error log","If it reaches 10 failed attempts and is held, handle it as an Admin Hold order","Warn the kitchen if pickup is close"],
+   owner:"No action yet; store manager if it keeps failing"},
+  {key:"hold",cause:"The order is held and waiting for a person to release it",test:/hold|manual review|awaiting|pending approval/i,
+   why:"Per Lunchbox’s public documentation, an order goes to Admin Hold after repeated failed POS sends (documented as 10 attempts). It will not reach the kitchen until a person acts, so the risk is a late or missed order.",
+   missing:["Why the POS send failed (check the POS error log)","Who has permission to release the order","How long the order has been waiting and its pickup time"],
+   checks:["Check the reason for the failure in the POS error log","If the cause can be fixed quickly, fix it and use Release Order to return the order to its last status","If it cannot be fixed quickly, enter the order into the POS manually, then mark it complete in Lunchbox so reporting and payment stay correct","Confirm the kitchen has the order","Notify the customer if pickup will be late"],
+   owner:"Manager with release permission"},
+  {key:"closed",cause:"The store was closed or not accepting orders",test:/closed|outside.*hours|not accepting|paused/i,
+   why:"The order arrived when ordering was unavailable for this store.",
+   missing:["Store hours in each system","Whether ordering was paused on purpose"],
+   checks:["Compare store hours in the platform and the POS","Decide whether to accept or cancel and refund","Contact the customer","Correct the hours if they are wrong"],
+   owner:"Store manager"}
+];
+const FALLBACK = {key:"unknown",cause:"Cause not recognised",
+  why:"The log does not match a known pattern, so a person should review it before any action.",
+  missing:["The full error message and time","The order number and store","What the POS shows for this order"],
+  checks:["Collect the full log and order details","Check whether the order exists in the POS","Escalate with the details above"],owner:"Integration support"};
+
+function analyze(o){
+  const hits=RULES.map(r=>({r,lines:o.log.split("\n").filter(l=>r.test.test(l))})).filter(h=>h.lines.length);
+  if(!hits.length) return {...FALLBACK,confidence:30,evidence:[]};
+  hits.sort((a,b)=>b.lines.length-a.lines.length);
+  const best=hits[0];
+  const conf=Math.min(90,55+best.lines.length*15-(hits.length>1?10:0));
+  return {...best.r,confidence:conf,evidence:best.lines,alsoSaw:hits.slice(1).map(h=>h.r.cause)};
+}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function hl(log,ev){return esc(log).split("\n").map(l=>ev.some(e=>esc(e)===l)?"<mark>"+l+"</mark>":l).join("\n")}
+
+/* ---------- UI ---------- */
+let current=null, done={}, tick=null;
+const started={}, LOG=[];
+const queue=document.getElementById("queue"), detail=document.getElementById("detail");
+
+function renderQueue(){
+  queue.innerHTML=ORDERS.map(o=>`<button type="button" data-id="${esc(o.id)}" aria-current="${current&&current.id===o.id}">
+    <div class="q-top"><span>${esc(o.id)}</span><span>$${esc(o.total)}</span></div>
+    <div class="q-sub">${esc(o.store)} · ${esc(o.channel)}</div>
+    <span class="pill ${o.minutes<=15?"urgent":""}">${o.minutes<=15?"Pickup in "+o.minutes+" min":"Due in "+o.minutes+" min"}</span></button>`).join("");
+  queue.querySelectorAll("button").forEach(b=>b.onclick=()=>select(ORDERS.find(o=>o.id===b.dataset.id)));
+}
+
+function select(o){ current=o; done[o.id]=done[o.id]||{}; if(!started[o.id]) started[o.id]=Date.now(); renderQueue(); renderDetail(); }
+
+function summaryText(o,a){
+  const d=done[o.id]||{};
+  const finished=a.checks.filter((c,i)=>d[i]), open=a.checks.filter((c,i)=>!d[i]);
+  return `ESCALATION SUMMARY (draft for human review)
+Order: ${o.id}   Store: ${o.store}   Channel: ${o.channel}
+Items: ${o.items}   Total: $${o.total}
+Time pressure: ${o.minutes<=15?"URGENT – ":""}due in about ${o.minutes} min
+
+What the system reports:
+${(a.evidence.length?a.evidence:["(no matching log line)"]).map(x=>"  - "+x).join("\n")}
+
+Likely cause (${a.confidence}% match, unverified): ${a.cause}
+
+Already checked:
+${finished.length?finished.map(x=>"  - "+x).join("\n"):"  - nothing recorded yet"}
+
+Still needed:
+${open.map(x=>"  - "+x).join("\n")}
+
+Information I don’t have yet:
+${a.missing.map(x=>"  - "+x).join("\n")}
+
+Suggested owner: ${a.owner}
+Status: not sent. A person must confirm before any action is taken.`;
+}
+
+function renderDetail(){
+  const o=current, a=analyze(o), d=done[o.id];
+  detail.innerHTML=`
+  <div class="panel"><h2>Order ${esc(o.id)}</h2><div class="sec">
+    <div class="row"><span><b>Store</b> ${esc(o.store)}</span><span><b>Channel</b> ${esc(o.channel)}</span><span><b>Total</b> $${esc(o.total)}</span><span><b>Due</b> ${o.minutes} min</span></div>
+    <div class="row" style="margin-top:4px"><span><b>Items</b> ${esc(o.items)}</span></div>
+    <pre class="log">${hl(o.log,a.evidence)}</pre>
+  </div></div>
+
+  <div class="panel"><h2>Likely cause</h2><div class="sec">
+    <p class="cause">${esc(a.cause)}</p>
+    <span class="muted">Pattern match ${a.confidence}%</span><span class="meter" aria-hidden="true"><i style="width:${a.confidence}%"></i></span>
+    <p>${esc(a.why)}</p>
+    ${a.alsoSaw&&a.alsoSaw.length?`<p class="muted">The log also resembles: ${a.alsoSaw.map(esc).join("; ")}.</p>`:""}
+    <h3>Still missing before anyone acts</h3>
+    <ul class="plain">${a.missing.map(m=>`<li>${esc(m)}</li>`).join("")}</ul>
+  </div></div>
+
+  <div class="panel"><h2>Resolution checklist</h2><div class="sec">
+    ${a.checks.map((c,i)=>`<label class="check"><input type="checkbox" data-i="${i}" ${d[i]?"checked":""}><span>${esc(c)}</span></label>`).join("")}
+    <div class="progress" id="progress"></div>
+  </div></div>
+
+  <div class="panel"><h2>Escalation summary</h2><div class="sec">
+    <pre class="summary" id="summary"></pre>
+    <button class="btn" id="copy" type="button">Copy summary</button>
+    <p class="note">Suggested owner: ${esc(a.owner)}. Checking items updates the summary.</p>
+  </div></div>
+
+  <div class="panel"><h2>Record how it was resolved</h2><div class="sec">
+    <p class="muted" style="margin:0 0 8px">Timer: <b id="elapsed">0:00</b>, running since you opened this order. Times in this demo are practice timings, not measurements.</p>
+    ${["Retry worked on its own","Released after fix","Entered manually in POS","Escalated to support"].map(v=>`<label class="check"><input type="radio" name="res" value="${v}"><span>${v}</span></label>`).join("")}
+    <button class="btn" id="markDone" type="button">Mark resolved</button>
+    <p class="note" id="resMsg"></p>
+    <p class="note">Per Lunchbox’s support assistant, its documentation has no metric for staff time and no label that separates “released after fix” from “entered manually.” This log is the missing measurement.</p>
+  </div></div>
+
+  <div class="panel"><h2>Session log</h2><div class="sec" id="logBox"></div></div>`;
+  const upd=()=>{
+    const n=a.checks.filter((c,i)=>d[i]).length;
+    document.getElementById("progress").textContent=n+" of "+a.checks.length+" steps done";
+    document.getElementById("summary").textContent=summaryText(o,a);
+  };
+  detail.querySelectorAll("input[type=checkbox]").forEach(cb=>cb.onchange=()=>{d[cb.dataset.i]=cb.checked;upd();});
+  document.getElementById("copy").onclick=async e=>{
+    const t=summaryText(o,a);
+    try{await navigator.clipboard.writeText(t);}catch(_){const r=document.createRange();r.selectNode(document.getElementById("summary"));getSelection().removeAllRanges();getSelection().addRange(r);document.execCommand("copy");}
+    e.target.textContent="Copied";setTimeout(()=>e.target.textContent="Copy summary",1500);
+  };
+  upd(); setupResolution(o);
+}
+
+function fmt(s){s=Math.round(s);return Math.floor(s/60)+":"+String(s%60).padStart(2,"0")}
+function setupResolution(o){
+  clearInterval(tick);
+  const el=document.getElementById("elapsed"), btn=document.getElementById("markDone");
+  const already=LOG.find(l=>l.id===o.id);
+  const show=()=>{el.textContent=fmt(already?already.secs:(Date.now()-started[o.id])/1000)};
+  show();
+  if(already){
+    btn.disabled=true; btn.textContent="Resolved";
+    document.querySelectorAll("input[name=res]").forEach(r=>{if(r.value===already.type)r.checked=true;});
+  } else { tick=setInterval(show,1000); }
+  btn.onclick=()=>{
+    const sel=document.querySelector("input[name=res]:checked");
+    if(!sel){document.getElementById("resMsg").textContent="Choose how it was resolved first.";return;}
+    LOG.push({id:o.id,type:sel.value,secs:(Date.now()-started[o.id])/1000});
+    clearInterval(tick); renderDetail();
+  };
+  renderLog();
+}
+function renderLog(){
+  const box=document.getElementById("logBox"); if(!box) return;
+  if(!LOG.length){box.innerHTML='<p class="muted" style="margin:0">No orders resolved yet in this session.</p>';return;}
+  const secs=LOG.map(l=>l.secs).sort((a,b)=>a-b), m=secs.length>>1;
+  const med=secs.length%2?secs[m]:(secs[m-1]+secs[m])/2;
+  const by={}; LOG.forEach(l=>by[l.type]=(by[l.type]||0)+1);
+  box.innerHTML='<table><thead><tr><th>Order</th><th>Resolution</th><th>Time</th></tr></thead><tbody>'+
+    LOG.map(l=>`<tr><td>${esc(l.id)}</td><td>${esc(l.type)}</td><td>${fmt(l.secs)}</td></tr>`).join("")+
+    '</tbody></table><p class="note">'+LOG.length+' resolved; median '+fmt(med)+'; '+Object.entries(by).map(([k,v])=>esc(k)+': '+v).join("; ")+'</p>';
+}
+
+document.getElementById("analyzeCustom").onclick=()=>{
+  const v=document.getElementById("customLog").value.trim();
+  if(!v){document.getElementById("customLog").focus();return;}
+  const o={id:"CUSTOM-"+(ORDERS.length+1),store:"Your store",channel:"Pasted log",minutes:30,total:"–",items:"Not provided",log:v};
+  ORDERS.push(o);select(o);
+};
+select(ORDERS[0]);
+</script>
+</body>
+</html>
